@@ -148,12 +148,20 @@ class SplitTeamsController(rumps.App):
         )
         CFRunLoopRun()
 
-    @rumps.timer(0.1)
-    def check_for_event(self, _):
-        """Main thread timer checks for the flag from the background thread."""
+    @rumps.timer(1) # Check every 1 second for external changes and AirPods events
+    def poll_for_changes(self, _):
+        """Main thread timer checks for the flag from the background thread and external mute changes."""
+        # 1. Check for AirPods button press
         if self.mute_event_received:
             self.toggle_mute()
             self.mute_event_received = False  # Reset flag
+            # After toggling, the state is already synced, so we can return
+            return
+
+        # 2. Check for external mute state changes
+        current_system_mute_status = self.check_system_mute_status()
+        if current_system_mute_status != self.is_muted:
+            self.sync_state()
 
     # --- ACTION HANDLER FOR THE MIC BUTTON ---
     # This weird signature is required for native button clicks
