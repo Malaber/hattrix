@@ -1,8 +1,7 @@
-import os
 import rumps
 import subprocess
-from AppKit import NSStatusBar, NSVariableStatusItemLength, NSImage
-from Foundation import NSSize
+from AppKit import NSStatusBar, NSVariableStatusItemLength, NSImage, NSSound
+from Foundation import NSSize, NSAppleScript
 
 # --- Imports for AirPods detection ---
 import threading
@@ -18,7 +17,6 @@ MUTE_NOTIFICATION_BYTES = b"com.apple.audioaccessoryd.MuteState"
 ICON_MENU_PATH = "media/hattrix.png"
 ICON_MUTED_PATH = "media/muted.png"
 ICON_LIVE_PATH = "media/mic_open.png"
-
 
 # SOUNDS
 SOUND_ON_MUTE = "media/mute.mp3"
@@ -52,22 +50,13 @@ class CFBridge:
 
     Release = _cf.CFRelease
     Release.argtypes = [ctypes.c_void_p]
-
-    # Callback Definition
-    CFNotificationCallback = ctypes.CFUNCTYPE(
-        None, CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p, CFDictionaryRef
-    )
-
+    CFNotificationCallback = ctypes.CFUNCTYPE(None, CFNotificationCenterRef, ctypes.py_object, CFStringRef,
+                                              ctypes.c_void_p, CFDictionaryRef)
     AddObserver = _cf.CFNotificationCenterAddObserver
-    AddObserver.argtypes = [
-        CFNotificationCenterRef, ctypes.py_object, CFNotificationCallback,
-        CFStringRef, ctypes.c_void_p, CFNotificationSuspensionBehavior
-    ]
-
+    AddObserver.argtypes = [CFNotificationCenterRef, ctypes.py_object, CFNotificationCallback, CFStringRef,
+                            ctypes.c_void_p, CFNotificationSuspensionBehavior]
     RemoveObserver = _cf.CFNotificationCenterRemoveObserver
-    RemoveObserver.argtypes = [
-        CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p
-    ]
+    RemoveObserver.argtypes = [CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p]
 
 
 # --- Global Callback ---
@@ -85,6 +74,14 @@ class SplitTeamsController(rumps.App):
         # 1. SETUP THE MENU APP (The Gear Icon)
         super(SplitTeamsController, self).__init__("TeamsMenu", icon=ICON_MENU_PATH, title=None)
 
+        # Optimization: Pre-compile AppleScript for volume checking
+        # This keeps the script compilation in memory rather than re-reading it every second
+        self.check_vol_script = NSAppleScript.alloc().initWithSource_("input volume of (get volume settings)")
+
+        # Optimization: Pre-load Sounds
+        self.sound_mute = NSSound.alloc().initWithContentsOfFile_byReference_(SOUND_ON_MUTE, True)
+        self.sound_unmute = NSSound.alloc().initWithContentsOfFile_byReference_(SOUND_ON_UNMUTE, True)
+
         self.is_muted = self.check_system_mute_status()
 
         # --- Load Template Images ---
@@ -100,14 +97,10 @@ class SplitTeamsController(rumps.App):
         self.mute_event_received = False
         self.listener_thread = None
         self.run_loop = None
-        self.cf_notification_name = None
+        self.cf_notification_name = CFBridge.StringCreateWithCString(CFBridge.kCFAllocatorDefault,
+                                                                     MUTE_NOTIFICATION_BYTES,
+                                                                     CFBridge.kCFStringEncodingUTF8)
 
-        # Create the CFString ONCE and reuse it
-        self.cf_notification_name = CFBridge.StringCreateWithCString(
-            CFBridge.kCFAllocatorDefault,
-            MUTE_NOTIFICATION_BYTES,
-            CFBridge.kCFStringEncodingUTF8
-        )
         self.start_listener()
 
         # Menu Items
@@ -137,18 +130,11 @@ class SplitTeamsController(rumps.App):
     def run_listener(self):
         """Background thread loop."""
         self.run_loop = CFRunLoopGetCurrent()
-
-        CFBridge.AddObserver(
-            CFBridge.GetDarwinNotifyCenter(),
-            self,  # Observer context
-            CTYPES_CALLBACK,  # Callback
-            self.cf_notification_name,
-            None,
-            0  # Deliver Immediately
-        )
+        CFBridge.AddObserver(CFBridge.GetDarwinNotifyCenter(), self, CTYPES_CALLBACK, self.cf_notification_name, None,
+                             0)
         CFRunLoopRun()
 
-    @rumps.timer(1) # Check every 1 second for external changes and AirPods events
+    @rumps.timer(2)
     def poll_for_changes(self, _):
         """Main thread timer checks for the flag from the background thread and external mute changes."""
         # 1. Check for AirPods button press
@@ -158,7 +144,7 @@ class SplitTeamsController(rumps.App):
             # After toggling, the state is already synced, so we can return
             return
 
-        # 2. Check for external mute state changes
+        # 2. Lower priority: Check system state
         current_system_mute_status = self.check_system_mute_status()
         if current_system_mute_status != self.is_muted:
             self.sync_state()
@@ -197,36 +183,39 @@ class SplitTeamsController(rumps.App):
         self.mic_item.button().setImage_(self.image_muted if self.is_muted else self.image_live)
 
     # --- AUDIO CONTROL & FEEDBACK ---
-    def play_feedback_sound(self, sound_path):
-        """Plays a sound asynchronously if it exists."""
-        if os.path.exists(sound_path):
-            subprocess.Popen(["afplay", sound_path])
+    def play_feedback_sound(self, sound_obj):
+        """Plays using native NSSound"""
+        if sound_obj:
+            sound_obj.stop()  # Stop if currently playing
+            sound_obj.play()
 
     def mute_system(self):
         subprocess.run(["osascript", "-e", "set volume input volume 0"])
-        self.play_feedback_sound(SOUND_ON_MUTE)
+        self.play_feedback_sound(self.sound_mute)
 
     def unmute_system(self):
         subprocess.run(["osascript", "-e", "set volume input volume 100"])
-        self.play_feedback_sound(SOUND_ON_UNMUTE)
+        self.play_feedback_sound(self.sound_unmute)
 
     def check_system_mute_status(self):
-        script = "input volume of (get volume settings)"
-        result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True).stdout.strip()
+        """Uses NSAppleScript to avoid forking a process."""
         try:
-            return int(result) == 0
-        except ValueError:
+            # executeAndReturnError_ returns (NSAppleEventDescriptor, error_dict)
+            result_descriptor, error = self.check_vol_script.executeAndReturnError_(None)
+
+            if error:
+                return self.is_muted  # Fail safe
+
+            # stringValue() gets the string result ("0", "100", etc)
+            vol_str = result_descriptor.stringValue()
+            return int(vol_str) == 0
+        except:
             return False
 
     def quit_app(self, _=None):
         """Cleanly shut down the listener before quitting."""
         if self.run_loop:
-            CFBridge.RemoveObserver(
-                CFBridge.GetDarwinNotifyCenter(),
-                self,
-                self.cf_notification_name,
-                None
-            )
+            CFBridge.RemoveObserver(CFBridge.GetDarwinNotifyCenter(), self, self.cf_notification_name, None)
             CFRunLoopStop(self.run_loop)
 
         if self.cf_notification_name:
