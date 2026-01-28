@@ -2,6 +2,7 @@ import os
 import rumps
 import subprocess
 from AppKit import NSStatusBar, NSVariableStatusItemLength, NSImage
+from Foundation import NSSize
 
 # --- Imports for AirPods detection ---
 import threading
@@ -89,9 +90,11 @@ class SplitTeamsController(rumps.App):
         # --- Load Template Images ---
         self.image_muted = NSImage.alloc().initWithContentsOfFile_(ICON_MUTED_PATH)
         self.image_muted.setTemplate_(True)
+        self.image_muted.setSize_(NSSize(18, 18))
 
         self.image_live = NSImage.alloc().initWithContentsOfFile_(ICON_LIVE_PATH)
         self.image_live.setTemplate_(True)
+        self.image_live.setSize_(NSSize(18, 18))
 
         # --- State for AirPods listener ---
         self.mute_event_received = False
