@@ -1,84 +1,78 @@
 # PodsMute POC: Darwin Notification Listener
 
-This document explains how the `podsmute_poc.py` script works. The goal of this Proof-of-Concept (POC) is to create a Python menu bar application that can listen for the mute button press on AirPods and react to it.
+This document explains the inner workings of `podsmute_poc.py`. The goal of this Proof-of-Concept (POC) is to provide a Python menu bar application that listens for the specific "mute" button press on AirPods and reacts to it using native macOS APIs.
 
 ## The Challenge: Listening to System Events
 
-The core difficulty is that there is no direct Python API to listen for the AirPods mute button press. This event is not a standard keyboard shortcut or media key. Instead, it's a private, low-level system notification broadcast by a macOS service (`audioaccessoryd`).
+There is no standard Python API to detect the AirPods mute button press. This event is a private, low-level system notification broadcast by the macOS service `audioaccessoryd`.
 
-The name of this notification is `com.apple.audioaccessoryd.MuteState`. It's a "Darwin" notification, which is a C-level mechanism for inter-process communication on macOS.
+The notification name is `com.apple.audioaccessoryd.MuteState`. It is a **Darwin Notification**—a system-wide, C-level inter-process communication mechanism. To capture this in Python, we must bypass standard libraries and bridge directly to the macOS `CoreFoundation` framework.
 
-To capture this in Python, we cannot use standard libraries. We must interface directly with macOS's native `CoreFoundation` C framework.
+## The Solution: `ctypes` & `CFBridge`
 
-## The Solution: `ctypes` Bridge to CoreFoundation
+The solution uses Python's `ctypes` library to interact with shared C libraries. To ensure code stability, readability, and memory safety, all low-level C interactions are encapsulated in a helper class named `CFBridge`.
 
-After discovering that the `pyobjc` library was unreliable for this specific task in the target environment, the final solution uses Python's built-in `ctypes` library. `ctypes` provides a robust, low-level way to call functions in shared libraries (like system frameworks) directly from Python. It acts as a bridge, allowing our Python code to behave like C code.
+### 1. The `CFBridge` Class
+Instead of scattering C definitions globally, `CFBridge` acts as a static interface for `CoreFoundation`:
 
-Here's a breakdown of how the script is architected:
+* **Loading the Library**: `_cf = ctypes.CDLL(...)` loads `CoreFoundation.framework`.
+* **Type Safety**: Defines Python aliases for C types (e.g., `CFStringRef`, `CFNotificationCenterRef`) to ensure correct data handling.
+* **Function Prototypes**: Explicitly defines `argtypes` and `restype` for every C function. This prevents segmentation faults caused by passing Python objects where C pointers are required.
 
-### 1. The `ctypes` Setup
+### 2. The Callback Mechanism
+We must provide a function that the C framework can execute when the event occurs:
 
-This large block at the beginning of the script is essentially a mini C header file translated into Python. It tells `ctypes` about the C functions and data types we need to use from the `CoreFoundation` framework.
+1.  **`_notification_callback_c`**: A global Python function that runs when the notification fires. It receives the `app_instance` (our Python object) as context and sets a flag on it.
+2.  **`CTYPES_CALLBACK`**: A `ctypes` wrapper that converts the Python function into a C function pointer compatible with `CoreFoundation`.
 
-- **Loading the Library**: `_cf = ctypes.CDLL(...)` loads the `CoreFoundation.framework` into our script so we can call its functions.
-- **Defining C Types**: Lines like `CFNotificationCenterRef = ctypes.c_void_p` define Python aliases for C pointer types. This makes the code more readable and ensures `ctypes` handles data correctly.
-- **Defining Function Prototypes**: Lines like `_cf.CFNotificationCenterAddObserver.argtypes = [...]` and `...restype = ...` define the exact signature of the C functions we want to call. This is crucial for `ctypes` to correctly manage arguments and return values.
+### 3. Memory Management (Critical Optimization)
+This implementation addresses potential memory leaks found in simpler `ctypes` approaches:
 
-### 2. The Callback Mechanism (The Core Logic)
+* **String Reuse**: The C-string for the notification name (`com.apple...`) is created **once** in `__init__` and stored in `self.cf_notification_name`.
+* **Lifecycle**: This single pointer is reused for *Adding* the observer and *Removing* the observer. It is explicitly released (`CFRelease`) only when the app quits.
 
-This is the most critical part. We need to provide a Python function that can be successfully called from the C `CoreFoundation` framework.
+### 4. Threading & Run Loops
+* **Background Thread**: The listener runs on a dedicated background thread (`run_listener`) because `CFRunLoopRun()` blocks execution while waiting for events.
+* **Main Thread Safety**: The background thread **never** touches the UI. It acts as a producer, setting a boolean flag (`self.mute_event_received = True`).
+* **Polling**: A `@rumps.timer` on the main thread acts as the consumer, checking this flag every 0.1s. If true, it updates the UI. This ensures thread safety and prevents GUI freezes.
 
-1.  **`_notification_callback_c`**: This is a simple, global Python function. It's the code that will actually run when a notification is received. It takes several arguments that the C framework provides, but the most important one is `app_instance`. This is the "context" we provide during registration, which allows the callback to know which `rumps` app instance to modify.
+## Integration Guide
 
-2.  **`CFNotificationCallback = ctypes.CFUNCTYPE(...)`**: This line defines the *signature* of a C function pointer in `ctypes` terms. We are telling `ctypes`, "We need to create a callback that returns nothing (`None`) and takes these specific types of arguments (`CFNotificationCenterRef`, `ctypes.py_object`, etc.)."
+To add this functionality to your own `rumps` application:
 
-3.  **`CTYPES_CALLBACK = CFNotificationCallback(...)`**: This is the magic step. It takes our Python function (`_notification_callback_c`) and wraps it, creating a C-compatible function pointer (`CTYPES_CALLBACK`) that we can pass to the `CoreFoundation` framework.
+1.  **Copy the Bridge**: Copy the `CFBridge` class and the `_notification_callback_c` function (including the `CTYPES_CALLBACK` line) into your script.
 
-### 3. Threading: Keeping the UI Responsive
-
-- The listener for Darwin notifications must run on a thread with an active "Run Loop". `CFRunLoopRun()` is a blocking call that waits for events.
-- If we ran this on the main application thread, our entire `rumps` GUI would freeze.
-- Therefore, we create a background `threading.Thread` (`run_listener`) whose sole purpose is to start this run loop and wait for notifications.
-
-### 4. Cross-Thread Communication
-
-- When the `_notification_callback_c` is executed, it's running on the background listener thread. **It is unsafe to directly modify GUI elements (like `self.title`) from a background thread.**
-- The safe way to communicate is by using a simple flag.
-    1.  The background callback sets `app_instance.mute_event_received = True`.
-    2.  A `@rumps.timer` on the main thread (`check_for_event`) periodically checks for this flag.
-    3.  If the flag is `True`, the main thread performs the UI update (changing the icon) and resets the flag to `False`.
-
-## How to Integrate This Into Your App
-
-You can copy this functionality into your existing `rumps` application by following these steps:
-
-1.  **Copy the Setup**: Copy the entire `ctypes setup` block and the global `_notification_callback_c` function and `CTYPES_CALLBACK` creation into your script.
-
-2.  **Add `__init__` Logic**: In your `rumps.App` subclass's `__init__` method, add the following attributes and call `start_listener`:
+2.  **Update `__init__`**: Initialize the state and the `CFString` in your app's constructor:
     ```python
     def __init__(self):
         super(YourApp, self).__init__("Your App")
-        # ... your other setup ...
+        
+        # State flags
         self.mute_event_received = False
         self.listener_thread = None
         self.run_loop = None
+
+        # Create the C-String ONCE
+        self.cf_notification_name = CFBridge.StringCreateWithCString(
+            CFBridge.kCFAllocatorDefault,
+            b"com.apple.audioaccessoryd.MuteState",
+            CFBridge.kCFStringEncodingUTF8
+        )
+
         self.start_listener()
     ```
 
-3.  **Copy Helper Methods**: Copy the `start_listener` and `run_listener` methods directly into your `rumps.App` subclass.
+3.  **Copy Helper Methods**: Copy `start_listener` and `run_listener` into your class.
 
-4.  **Add the Timer**: Add the `@rumps.timer` method (`check_for_event`) to your class. This is where you will put your desired logic. Instead of changing the title, you can call whatever function you need.
+4.  **Add the Logic Timer**:
     ```python
-    @rumps.timer(0.2) # Or a different interval
-    def check_for_airpods_event(self, _):
+    @rumps.timer(0.1)
+    def check_for_event(self, _):
         if self.mute_event_received:
-            print("AirPods mute button was pressed!")
-            # --- YOUR LOGIC HERE ---
-            # For example: self.toggle_system_mute()
-            # -----------------------
-            self.mute_event_received = False # Reset the flag
+            # --- YOUR CUSTOM LOGIC HERE ---
+            # e.g., self.toggle_system_mute()
+            # ------------------------------
+            self.mute_event_received = False
     ```
 
-5.  **Add Cleanup Logic**: It's important to clean up the notification listener when your app quits. Copy the logic from `quit_app` into your own quit method. The key is to call `CFRunLoopStop` to allow the background thread to exit gracefully.
-
-By following these steps, you can add this robust, low-level event listening capability to any `rumps` application.
+5.  **Implement Cleanup**: Ensure you copy the `quit_app` logic. It is vital to use `CFBridge.RemoveObserver` passing the **exact same** `self.cf_notification_name` you created in `__init__`, and then release it.
