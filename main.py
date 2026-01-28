@@ -6,11 +6,7 @@ from AppKit import NSStatusBar, NSVariableStatusItemLength
 import threading
 import ctypes
 import ctypes.util
-try:
-    from CoreFoundation import CFRunLoopGetCurrent, CFRunLoopRun, CFRunLoopStop
-    core_foundation_imported = True
-except ImportError:
-    core_foundation_imported = False
+from CoreFoundation import CFRunLoopGetCurrent, CFRunLoopRun, CFRunLoopStop
 
 # --- CONFIGURATION ---
 TEAMS_PROCESS_NAME = "Microsoft Teams"
@@ -23,59 +19,58 @@ ICON_MENU = "⚙️"  # The icon for the menu button
 
 
 # --- Ctypes / CoreFoundation Setup for AirPods mute detection ---
-if core_foundation_imported:
-    class CFBridge:
-        _cf = ctypes.CDLL(ctypes.util.find_library('CoreFoundation'))
+class CFBridge:
+    _cf = ctypes.CDLL(ctypes.util.find_library('CoreFoundation'))
 
-        # Types
-        CFAllocatorRef = ctypes.c_void_p
-        CFNotificationCenterRef = ctypes.c_void_p
-        CFStringRef = ctypes.c_void_p
-        CFDictionaryRef = ctypes.c_void_p
-        CFIndex = ctypes.c_long
-        CFNotificationSuspensionBehavior = CFIndex
-        CFStringEncoding = ctypes.c_uint32
+    # Types
+    CFAllocatorRef = ctypes.c_void_p
+    CFNotificationCenterRef = ctypes.c_void_p
+    CFStringRef = ctypes.c_void_p
+    CFDictionaryRef = ctypes.c_void_p
+    CFIndex = ctypes.c_long
+    CFNotificationSuspensionBehavior = CFIndex
+    CFStringEncoding = ctypes.c_uint32
 
-        # Constants
-        kCFAllocatorDefault = CFAllocatorRef(0)
-        kCFStringEncodingUTF8 = CFStringEncoding(0x08000100)
+    # Constants
+    kCFAllocatorDefault = CFAllocatorRef(0)
+    kCFStringEncodingUTF8 = CFStringEncoding(0x08000100)
 
-        # Functions
-        GetDarwinNotifyCenter = _cf.CFNotificationCenterGetDarwinNotifyCenter
-        GetDarwinNotifyCenter.restype = CFNotificationCenterRef
+    # Functions
+    GetDarwinNotifyCenter = _cf.CFNotificationCenterGetDarwinNotifyCenter
+    GetDarwinNotifyCenter.restype = CFNotificationCenterRef
 
-        StringCreateWithCString = _cf.CFStringCreateWithCString
-        StringCreateWithCString.argtypes = [CFAllocatorRef, ctypes.c_char_p, CFStringEncoding]
-        StringCreateWithCString.restype = CFStringRef
+    StringCreateWithCString = _cf.CFStringCreateWithCString
+    StringCreateWithCString.argtypes = [CFAllocatorRef, ctypes.c_char_p, CFStringEncoding]
+    StringCreateWithCString.restype = CFStringRef
 
-        Release = _cf.CFRelease
-        Release.argtypes = [ctypes.c_void_p]
+    Release = _cf.CFRelease
+    Release.argtypes = [ctypes.c_void_p]
 
-        # Callback Definition
-        CFNotificationCallback = ctypes.CFUNCTYPE(
-            None, CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p, CFDictionaryRef
-        )
+    # Callback Definition
+    CFNotificationCallback = ctypes.CFUNCTYPE(
+        None, CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p, CFDictionaryRef
+    )
 
-        AddObserver = _cf.CFNotificationCenterAddObserver
-        AddObserver.argtypes = [
-            CFNotificationCenterRef, ctypes.py_object, CFNotificationCallback,
-            CFStringRef, ctypes.c_void_p, CFNotificationSuspensionBehavior
-        ]
+    AddObserver = _cf.CFNotificationCenterAddObserver
+    AddObserver.argtypes = [
+        CFNotificationCenterRef, ctypes.py_object, CFNotificationCallback,
+        CFStringRef, ctypes.c_void_p, CFNotificationSuspensionBehavior
+    ]
 
-        RemoveObserver = _cf.CFNotificationCenterRemoveObserver
-        RemoveObserver.argtypes = [
-            CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p
-        ]
+    RemoveObserver = _cf.CFNotificationCenterRemoveObserver
+    RemoveObserver.argtypes = [
+        CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p
+    ]
 
 
-    # --- Global Callback ---
-    def _notification_callback_c(center, app_instance, name, object, user_info):
-        """Called from the background C-thread. Signal the app instance."""
-        if app_instance:
-            app_instance.mute_event_received = True
+# --- Global Callback ---
+def _notification_callback_c(center, app_instance, name, object, user_info):
+    """Called from the background C-thread. Signal the app instance."""
+    if app_instance:
+        app_instance.mute_event_received = True
 
-    # Create the C-callable function pointer once
-    CTYPES_CALLBACK = CFBridge.CFNotificationCallback(_notification_callback_c)
+# Create the C-callable function pointer once
+CTYPES_CALLBACK = CFBridge.CFNotificationCallback(_notification_callback_c)
 
 
 class SplitTeamsController(rumps.App):
@@ -91,14 +86,13 @@ class SplitTeamsController(rumps.App):
         self.run_loop = None
         self.cf_notification_name = None
 
-        if core_foundation_imported:
-            # Create the CFString ONCE and reuse it
-            self.cf_notification_name = CFBridge.StringCreateWithCString(
-                CFBridge.kCFAllocatorDefault,
-                MUTE_NOTIFICATION_BYTES,
-                CFBridge.kCFStringEncodingUTF8
-            )
-            self.start_listener()
+        # Create the CFString ONCE and reuse it
+        self.cf_notification_name = CFBridge.StringCreateWithCString(
+            CFBridge.kCFAllocatorDefault,
+            MUTE_NOTIFICATION_BYTES,
+            CFBridge.kCFStringEncodingUTF8
+        )
+        self.start_listener()
 
         # Menu Items
         self.menu = [
@@ -195,7 +189,7 @@ class SplitTeamsController(rumps.App):
 
     def quit_app(self, _=None):
         """Cleanly shut down the listener before quitting."""
-        if core_foundation_imported and self.run_loop:
+        if self.run_loop:
             CFBridge.RemoveObserver(
                 CFBridge.GetDarwinNotifyCenter(),
                 self,
@@ -204,18 +198,11 @@ class SplitTeamsController(rumps.App):
             )
             CFRunLoopStop(self.run_loop)
 
-        if core_foundation_imported and self.cf_notification_name:
+        if self.cf_notification_name:
             CFBridge.Release(self.cf_notification_name)
 
         rumps.quit_application()
 
 
 if __name__ == "__main__":
-    if not core_foundation_imported:
-        rumps.alert(
-            title="Abhängigkeit fehlt (Dependency Missing)",
-            message="Die PyObjC-Bibliothek wird benötigt, um auf AirPods-Ereignisse zu lauschen.\n\n"
-                    "Führen Sie 'pip install pyobjc-core' aus und versuchen Sie es erneut.",
-            ok="OK"
-        )
     SplitTeamsController().run()
