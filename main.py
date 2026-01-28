@@ -1,7 +1,7 @@
 import os
 import rumps
 import subprocess
-from AppKit import NSStatusBar, NSVariableStatusItemLength
+from AppKit import NSStatusBar, NSVariableStatusItemLength, NSImage
 
 # --- Imports for AirPods detection ---
 import threading
@@ -14,9 +14,10 @@ TEAMS_PROCESS_NAME = "Microsoft Teams"
 MUTE_NOTIFICATION_BYTES = b"com.apple.audioaccessoryd.MuteState"
 
 # ICONS
-ICON_MUTED = "🔴"
-ICON_LIVE = "🟢"
 ICON_MENU = "⚙️"  # The icon for the menu button
+ICON_MUTED_PATH = "media/muted.png"
+ICON_LIVE_PATH = "media/mic_open.png"
+
 
 # SOUNDS
 SOUND_ON_MUTE = "media/mute.mp3"
@@ -85,6 +86,13 @@ class SplitTeamsController(rumps.App):
 
         self.is_muted = self.check_system_mute_status()
 
+        # --- Load Template Images ---
+        self.image_muted = NSImage.alloc().initWithContentsOfFile_(ICON_MUTED_PATH)
+        self.image_muted.setTemplate_(True)
+
+        self.image_live = NSImage.alloc().initWithContentsOfFile_(ICON_LIVE_PATH)
+        self.image_live.setTemplate_(True)
+
         # --- State for AirPods listener ---
         self.mute_event_received = False
         self.listener_thread = None
@@ -111,7 +119,7 @@ class SplitTeamsController(rumps.App):
         # We have to use native macOS calls (AppKit) to add a second item to the bar
         self.statusbar = NSStatusBar.systemStatusBar()
         self.mic_item = self.statusbar.statusItemWithLength_(NSVariableStatusItemLength)
-        self.mic_item.button().setTitle_(ICON_MUTED if self.is_muted else ICON_LIVE)
+        self.mic_item.button().setImage_(self.image_muted if self.is_muted else self.image_live)
 
         # Assign the click action to the 'quick_toggle' function
         self.mic_item.button().setTarget_(self)
@@ -175,7 +183,7 @@ class SplitTeamsController(rumps.App):
         self.is_muted = self.check_system_mute_status()
 
         # Update the visual icon of the Second Button
-        self.mic_item.button().setTitle_(ICON_MUTED if self.is_muted else ICON_LIVE)
+        self.mic_item.button().setImage_(self.image_muted if self.is_muted else self.image_live)
 
     # --- AUDIO CONTROL & FEEDBACK ---
     def play_feedback_sound(self, sound_path):
