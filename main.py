@@ -15,7 +15,7 @@ TEAMS_PROCESS_NAME = "Microsoft Teams"
 MUTE_NOTIFICATION_BYTES = b"com.apple.audioaccessoryd.MuteState"
 
 # ICONS
-ICON_MENU = "⚙️"  # The icon for the menu button
+ICON_MENU_PATH = "media/hattrix.png"
 ICON_MUTED_PATH = "media/muted.png"
 ICON_LIVE_PATH = "media/mic_open.png"
 
@@ -83,7 +83,7 @@ CTYPES_CALLBACK = CFBridge.CFNotificationCallback(_notification_callback_c)
 class SplitTeamsController(rumps.App):
     def __init__(self):
         # 1. SETUP THE MENU APP (The Gear Icon)
-        super(SplitTeamsController, self).__init__("TeamsMenu", icon=None, title=ICON_MENU)
+        super(SplitTeamsController, self).__init__("TeamsMenu", icon=ICON_MENU_PATH, title=None)
 
         self.is_muted = self.check_system_mute_status()
 
