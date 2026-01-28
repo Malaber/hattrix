@@ -1,14 +1,81 @@
 import rumps
 import subprocess
-from AppKit import NSStatusBar, NSVariableStatusItemLength, NSImage
+from AppKit import NSStatusBar, NSVariableStatusItemLength
+
+# --- Imports for AirPods detection ---
+import threading
+import ctypes
+import ctypes.util
+try:
+    from CoreFoundation import CFRunLoopGetCurrent, CFRunLoopRun, CFRunLoopStop
+    core_foundation_imported = True
+except ImportError:
+    core_foundation_imported = False
 
 # --- CONFIGURATION ---
 TEAMS_PROCESS_NAME = "Microsoft Teams"
+MUTE_NOTIFICATION_BYTES = b"com.apple.audioaccessoryd.MuteState"
 
 # ICONS
 ICON_MUTED = "🔴"
 ICON_LIVE = "🟢"
 ICON_MENU = "⚙️"  # The icon for the menu button
+
+
+# --- Ctypes / CoreFoundation Setup for AirPods mute detection ---
+if core_foundation_imported:
+    class CFBridge:
+        _cf = ctypes.CDLL(ctypes.util.find_library('CoreFoundation'))
+
+        # Types
+        CFAllocatorRef = ctypes.c_void_p
+        CFNotificationCenterRef = ctypes.c_void_p
+        CFStringRef = ctypes.c_void_p
+        CFDictionaryRef = ctypes.c_void_p
+        CFIndex = ctypes.c_long
+        CFNotificationSuspensionBehavior = CFIndex
+        CFStringEncoding = ctypes.c_uint32
+
+        # Constants
+        kCFAllocatorDefault = CFAllocatorRef(0)
+        kCFStringEncodingUTF8 = CFStringEncoding(0x08000100)
+
+        # Functions
+        GetDarwinNotifyCenter = _cf.CFNotificationCenterGetDarwinNotifyCenter
+        GetDarwinNotifyCenter.restype = CFNotificationCenterRef
+
+        StringCreateWithCString = _cf.CFStringCreateWithCString
+        StringCreateWithCString.argtypes = [CFAllocatorRef, ctypes.c_char_p, CFStringEncoding]
+        StringCreateWithCString.restype = CFStringRef
+
+        Release = _cf.CFRelease
+        Release.argtypes = [ctypes.c_void_p]
+
+        # Callback Definition
+        CFNotificationCallback = ctypes.CFUNCTYPE(
+            None, CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p, CFDictionaryRef
+        )
+
+        AddObserver = _cf.CFNotificationCenterAddObserver
+        AddObserver.argtypes = [
+            CFNotificationCenterRef, ctypes.py_object, CFNotificationCallback,
+            CFStringRef, ctypes.c_void_p, CFNotificationSuspensionBehavior
+        ]
+
+        RemoveObserver = _cf.CFNotificationCenterRemoveObserver
+        RemoveObserver.argtypes = [
+            CFNotificationCenterRef, ctypes.py_object, CFStringRef, ctypes.c_void_p
+        ]
+
+
+    # --- Global Callback ---
+    def _notification_callback_c(center, app_instance, name, object, user_info):
+        """Called from the background C-thread. Signal the app instance."""
+        if app_instance:
+            app_instance.mute_event_received = True
+
+    # Create the C-callable function pointer once
+    CTYPES_CALLBACK = CFBridge.CFNotificationCallback(_notification_callback_c)
 
 
 class SplitTeamsController(rumps.App):
@@ -18,12 +85,27 @@ class SplitTeamsController(rumps.App):
 
         self.is_muted = self.check_system_mute_status()
 
+        # --- State for AirPods listener ---
+        self.mute_event_received = False
+        self.listener_thread = None
+        self.run_loop = None
+        self.cf_notification_name = None
+
+        if core_foundation_imported:
+            # Create the CFString ONCE and reuse it
+            self.cf_notification_name = CFBridge.StringCreateWithCString(
+                CFBridge.kCFAllocatorDefault,
+                MUTE_NOTIFICATION_BYTES,
+                CFBridge.kCFStringEncodingUTF8
+            )
+            self.start_listener()
+
         # Menu Items
         self.menu = [
             rumps.MenuItem("Auflegen (Hang Up)", callback=self.hang_up),
             rumps.MenuItem("Teams zeigen (Focus)", callback=self.show_window),
             None,
-            "Beenden"
+            rumps.MenuItem("Beenden", callback=self.quit_app)
         ]
 
         # 2. SETUP THE SECOND ICON (The Mic Toggle)
@@ -35,6 +117,33 @@ class SplitTeamsController(rumps.App):
         # Assign the click action to the 'quick_toggle' function
         self.mic_item.button().setTarget_(self)
         self.mic_item.button().setAction_("quickToggle:")
+
+    # --- AirPods Event Listener ---
+    def start_listener(self):
+        self.listener_thread = threading.Thread(target=self.run_listener)
+        self.listener_thread.daemon = True
+        self.listener_thread.start()
+
+    def run_listener(self):
+        """Background thread loop."""
+        self.run_loop = CFRunLoopGetCurrent()
+
+        CFBridge.AddObserver(
+            CFBridge.GetDarwinNotifyCenter(),
+            self,  # Observer context
+            CTYPES_CALLBACK,  # Callback
+            self.cf_notification_name,
+            None,
+            0  # Deliver Immediately
+        )
+        CFRunLoopRun()
+
+    @rumps.timer(0.1)
+    def check_for_event(self, _):
+        """Main thread timer checks for the flag from the background thread."""
+        if self.mute_event_received:
+            self.toggle_mute()
+            self.mute_event_received = False  # Reset flag
 
     # --- ACTION HANDLER FOR THE MIC BUTTON ---
     # This weird signature is required for native button clicks
@@ -84,6 +193,29 @@ class SplitTeamsController(rumps.App):
         except ValueError:
             return False
 
+    def quit_app(self, _=None):
+        """Cleanly shut down the listener before quitting."""
+        if core_foundation_imported and self.run_loop:
+            CFBridge.RemoveObserver(
+                CFBridge.GetDarwinNotifyCenter(),
+                self,
+                self.cf_notification_name,
+                None
+            )
+            CFRunLoopStop(self.run_loop)
+
+        if core_foundation_imported and self.cf_notification_name:
+            CFBridge.Release(self.cf_notification_name)
+
+        rumps.quit_application()
+
 
 if __name__ == "__main__":
+    if not core_foundation_imported:
+        rumps.alert(
+            title="Abhängigkeit fehlt (Dependency Missing)",
+            message="Die PyObjC-Bibliothek wird benötigt, um auf AirPods-Ereignisse zu lauschen.\n\n"
+                    "Führen Sie 'pip install pyobjc-core' aus und versuchen Sie es erneut.",
+            ok="OK"
+        )
     SplitTeamsController().run()
