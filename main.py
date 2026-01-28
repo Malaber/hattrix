@@ -84,14 +84,14 @@ class SplitTeamsController(rumps.App):
 
         self.is_muted = self.check_system_mute_status()
 
-        # --- Load Template Images ---
-        self.image_muted = NSImage.alloc().initWithContentsOfFile_(ICON_MUTED_PATH)
-        self.image_muted.setTemplate_(True)
-        self.image_muted.setSize_(NSSize(18, 18))
+        # --- Load All Images via Helper ---
+        self.image_menu_gear = self._load_icon(ICON_MENU_PATH)
+        self.image_muted = self._load_icon(ICON_MUTED_PATH)
+        self.image_live = self._load_icon(ICON_LIVE_PATH)
 
-        self.image_live = NSImage.alloc().initWithContentsOfFile_(ICON_LIVE_PATH)
-        self.image_live.setTemplate_(True)
-        self.image_live.setSize_(NSSize(18, 18))
+        # Apply the formatted image to the Main Rumps App Icon
+        # We access the underlying button directly to bypass rumps' default handling
+        self.nsstatusitem.button().setImage_(self.image_menu_gear)
 
         # --- State for AirPods listener ---
         self.mute_event_received = False
@@ -120,6 +120,14 @@ class SplitTeamsController(rumps.App):
         # Assign the click action to the 'quick_toggle' function
         self.mic_item.button().setTarget_(self)
         self.mic_item.button().setAction_("quickToggle:")
+
+    def _load_icon(self, path):
+        """Helper to load an image, set it as a template, and resize it to 18x18."""
+        image = NSImage.alloc().initWithContentsOfFile_(path)
+        if image:
+            image.setTemplate_(True)
+            image.setSize_(NSSize(18, 18))
+        return image
 
     # --- AirPods Event Listener ---
     def start_listener(self):
