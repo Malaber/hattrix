@@ -1,3 +1,4 @@
+import os
 import rumps
 import subprocess
 from AppKit import NSStatusBar, NSVariableStatusItemLength
@@ -16,6 +17,10 @@ MUTE_NOTIFICATION_BYTES = b"com.apple.audioaccessoryd.MuteState"
 ICON_MUTED = "🔴"
 ICON_LIVE = "🟢"
 ICON_MENU = "⚙️"  # The icon for the menu button
+
+# SOUNDS
+SOUND_ON_MUTE = "media/mute.mp3"
+SOUND_ON_UNMUTE = "media/unmute.mp3"
 
 
 # --- Ctypes / CoreFoundation Setup for AirPods mute detection ---
@@ -172,12 +177,19 @@ class SplitTeamsController(rumps.App):
         # Update the visual icon of the Second Button
         self.mic_item.button().setTitle_(ICON_MUTED if self.is_muted else ICON_LIVE)
 
-    # --- SYSTEM AUDIO CONTROL ---
+    # --- AUDIO CONTROL & FEEDBACK ---
+    def play_feedback_sound(self, sound_path):
+        """Plays a sound asynchronously if it exists."""
+        if os.path.exists(sound_path):
+            subprocess.Popen(["afplay", sound_path])
+
     def mute_system(self):
         subprocess.run(["osascript", "-e", "set volume input volume 0"])
+        self.play_feedback_sound(SOUND_ON_MUTE)
 
     def unmute_system(self):
         subprocess.run(["osascript", "-e", "set volume input volume 100"])
+        self.play_feedback_sound(SOUND_ON_UNMUTE)
 
     def check_system_mute_status(self):
         script = "input volume of (get volume settings)"
