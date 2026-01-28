@@ -72,7 +72,7 @@ CTYPES_CALLBACK = CFBridge.CFNotificationCallback(_notification_callback_c)
 class SplitTeamsController(rumps.App):
     def __init__(self):
         # 1. SETUP THE MENU APP (The Gear Icon)
-        super(SplitTeamsController, self).__init__("TeamsMenu", icon=ICON_MENU_PATH, title=None)
+        super(SplitTeamsController, self).__init__("TeamsMenu", icon=ICON_MENU_PATH, title=None, template=True)
 
         # Optimization: Pre-compile AppleScript for volume checking
         # This keeps the script compilation in memory rather than re-reading it every second
@@ -84,14 +84,10 @@ class SplitTeamsController(rumps.App):
 
         self.is_muted = self.check_system_mute_status()
 
-        # --- Load All Images via Helper ---
-        self.image_menu_gear = self._load_icon(ICON_MENU_PATH)
+        # --- Load Secondary Images ---
+        # We still use the helper for the second icon because we manage it manually
         self.image_muted = self._load_icon(ICON_MUTED_PATH)
         self.image_live = self._load_icon(ICON_LIVE_PATH)
-
-        # Apply the formatted image to the Main Rumps App Icon
-        # We access the underlying button directly to bypass rumps' default handling
-        self.nsstatusitem.button().setImage_(self.image_menu_gear)
 
         # --- State for AirPods listener ---
         self.mute_event_received = False
