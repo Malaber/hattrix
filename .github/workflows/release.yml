@@ -9,7 +9,7 @@ jobs:
   build-and-release:
     runs-on: macos-latest
     permissions:
-      contents: write # Required to create releases
+      contents: write # Required for creating the Release
 
     steps:
       - name: Checkout Code
@@ -48,3 +48,27 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew Tap
+        uses: mislav/bump-homebrew-formula-action@v3
+        with:
+          # Name of the formula file (hattrix.rb)
+          formula_name: hattrix
+
+          # Your Tap Repository
+          homebrew_tap: Malaber/homebrew-tap
+
+          # IMPORTANT: Tell it where the file lives in the tap repo.
+          # Since you followed standard structure, it's likely inside "Casks"
+          cask_directory: Casks
+
+          # The base branch of your tap repo
+          base_branch: main
+
+          # The URL to the new zip we just created in step 6
+          download_url: https://github.com/Malaber/hattrix/releases/download/${{ github.ref_name }}/Hattrix.zip
+
+          # Commit message for the tap repo
+          commit_message: "Update hattrix to ${{ github.ref_name }}"
+        env:
+          COMMITTER_TOKEN: ${{ secrets.GH_TOKEN_FOR_TAP }}
