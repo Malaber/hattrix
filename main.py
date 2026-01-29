@@ -186,6 +186,16 @@ class SplitTeamsController(rumps.App):
         # Update Icon for second button
         self.mic_item.button().setImage_(self.image_muted if self.is_muted else self.image_live)
 
+    # --- NOTIFICATIONS ---
+    def send_notification(self, title, subtitle, message):
+        """Wrapper for rumps notifications."""
+        rumps.notification(
+            title=title,
+            subtitle=subtitle,
+            message=message,
+            sound=False # We handle sound manually via NSSound for faster response
+        )
+
     # --- AUDIO CONTROL ---
     def play_feedback_sound(self, sound_obj):
         """Plays using native NSSound"""
@@ -196,10 +206,12 @@ class SplitTeamsController(rumps.App):
     def mute_system(self):
         subprocess.run(["osascript", "-e", "set volume input volume 0"])
         self.play_feedback_sound(self.sound_mute)
+        self.send_notification("Microphone Muted", "System Input Volume: 0", "You are now muted.")
 
     def unmute_system(self):
         subprocess.run(["osascript", "-e", "set volume input volume 100"])
         self.play_feedback_sound(self.sound_unmute)
+        self.send_notification("Microphone Live", "System Input Volume: 100", "You are now live!")
 
     def check_system_mute_status(self):
         """Uses NSAppleScript to avoid forking a process."""
