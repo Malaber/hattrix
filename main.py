@@ -2,10 +2,10 @@ import rumps
 import subprocess
 from AppKit import NSStatusBar, NSVariableStatusItemLength, NSImage, NSSound
 from Foundation import NSSize, NSAppleScript
+from PyObjCTools import AppHelper  # <--- REQUIRED for instant background events
 
 # --- Imports for AirPods detection ---
 import threading
-import ctypes
 import ctypes.util
 from CoreFoundation import CFRunLoopGetCurrent, CFRunLoopRun, CFRunLoopStop
 
@@ -61,9 +61,12 @@ class CFBridge:
 
 # --- Global Callback ---
 def _notification_callback_c(center, app_instance, name, object, user_info):
-    """Called from the background C-thread. Signal the app instance."""
+    """
+    Called from the background thread when AirPods are clicked.
+    We use AppHelper to INSTANTLY trigger the toggle on the Main Thread.
+    """
     if app_instance:
-        app_instance.mute_event_received = True
+        AppHelper.callAfter(app_instance.toggle_mute)
 
 # Create the C-callable function pointer once
 CTYPES_CALLBACK = CFBridge.CFNotificationCallback(_notification_callback_c)
@@ -90,7 +93,6 @@ class SplitTeamsController(rumps.App):
         self.image_live = self._load_icon(ICON_LIVE_PATH)
 
         # --- State for AirPods listener ---
-        self.mute_event_received = False
         self.listener_thread = None
         self.run_loop = None
         self.cf_notification_name = CFBridge.StringCreateWithCString(CFBridge.kCFAllocatorDefault,
@@ -140,15 +142,10 @@ class SplitTeamsController(rumps.App):
 
     @rumps.timer(2)
     def poll_for_changes(self, _):
-        """Main thread timer checks for the flag from the background thread and external mute changes."""
-        # 1. Check for AirPods button press
-        if self.mute_event_received:
-            self.toggle_mute()
-            self.mute_event_received = False  # Reset flag
-            # After toggling, the state is already synced, so we can return
-            return
-
-        # 2. Lower priority: Check system state
+        """
+        Slow timer (2s) just to keep sync with external changes (like keyboard volume keys).
+        The AirPods button does NOT wait for this timer anymore.
+        """
         current_system_mute_status = self.check_system_mute_status()
         if current_system_mute_status != self.is_muted:
             self.sync_state()
@@ -160,6 +157,11 @@ class SplitTeamsController(rumps.App):
 
     # --- CORE LOGIC ---
     def toggle_mute(self):
+        # 1. Update internal state from reality first.
+        # This prevents desync if you muted via keyboard 0.5s ago and the timer hasn't caught it yet.
+        self.is_muted = self.check_system_mute_status()
+
+        # 2. Perform the toggle
         if self.is_muted:
             self.unmute_system()
         else:
