@@ -139,10 +139,10 @@ class SplitTeamsController(rumps.App):
         CFBridge.AddObserver(CFBridge.GetDarwinNotifyCenter(), self, CTYPES_CALLBACK, self.cf_notification_name, None, 0)
         CFRunLoopRun()
 
-    @rumps.timer(2)
+    @rumps.timer(10)
     def poll_for_changes(self, _):
         """
-        Slow timer (2s) just to keep sync with external changes (like keyboard volume keys).
+        Slow timer (10s) just to keep sync with external changes (like keyboard volume keys).
         The AirPods button does NOT wait for this timer anymore.
         """
         current_system_mute_status = self.check_system_mute_status()
