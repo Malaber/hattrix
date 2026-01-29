@@ -32,3 +32,19 @@ python setup.py py2app
 ```
 
 The app can now be found in the `dist` folder.
+
+## ⚠️ "Unverified Developer" Warning
+
+Since this app is open source and not signed with a paid Apple Developer ID, you might see a warning that it "cannot be checked for malicious software."
+
+**To fix this:**
+1. Right-click the app in your Applications folder.
+2. Select **Open**.
+3. Click **Open** in the confirmation dialog.
+
+Please understand the risks that this brings and build the app yourself instead if you don't trust the provided binary (after all I am just some random guy from the interwebs).
+
+Or run this command in your terminal:
+```bash
+xattr -d com.apple.quarantine /Applications/Hattrix.app
+```
