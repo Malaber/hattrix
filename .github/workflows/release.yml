@@ -57,7 +57,7 @@ jobs:
           homebrew-tap: Malaber/homebrew-tap
           # 2. IMPORTANT: Casks must download the App Zip, not the source code.
           # Ensure you are attaching 'Hattrix.zip' to your release!
-          download-url: https://github.com/Malaber/hattrix/releases/download/${{ steps.tag.outputs.name }}/Hattrix.zip
+          download-url: https://github.com/Malaber/hattrix/releases/download/${{ github.ref_name }}/Hattrix.zip
           commit-message: |
             {{formulaName}} {{version}}
         env:
