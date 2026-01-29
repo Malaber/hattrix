@@ -136,8 +136,7 @@ class SplitTeamsController(rumps.App):
     def run_listener(self):
         """Background thread loop."""
         self.run_loop = CFRunLoopGetCurrent()
-        CFBridge.AddObserver(CFBridge.GetDarwinNotifyCenter(), self, CTYPES_CALLBACK, self.cf_notification_name, None,
-                             0)
+        CFBridge.AddObserver(CFBridge.GetDarwinNotifyCenter(), self, CTYPES_CALLBACK, self.cf_notification_name, None, 0)
         CFRunLoopRun()
 
     @rumps.timer(2)
@@ -182,13 +181,12 @@ class SplitTeamsController(rumps.App):
         subprocess.run(["osascript", "-e", script])
 
     def sync_state(self):
-        # Update logic
+        # Update internal variable
         self.is_muted = self.check_system_mute_status()
-
-        # Update the visual icon of the Second Button
+        # Update Icon for second button
         self.mic_item.button().setImage_(self.image_muted if self.is_muted else self.image_live)
 
-    # --- AUDIO CONTROL & FEEDBACK ---
+    # --- AUDIO CONTROL ---
     def play_feedback_sound(self, sound_obj):
         """Plays using native NSSound"""
         if sound_obj:
@@ -223,10 +221,8 @@ class SplitTeamsController(rumps.App):
         if self.run_loop:
             CFBridge.RemoveObserver(CFBridge.GetDarwinNotifyCenter(), self, self.cf_notification_name, None)
             CFRunLoopStop(self.run_loop)
-
         if self.cf_notification_name:
             CFBridge.Release(self.cf_notification_name)
-
         rumps.quit_application()
 
 
