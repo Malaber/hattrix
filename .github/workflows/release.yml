@@ -49,13 +49,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Homebrew Tap
+      - name: Update Homebrew Cask
         uses: mislav/bump-homebrew-formula-action@v3
         with:
           formula-name: hattrix
+          formula-path: Casks/hattrix.rb
           homebrew-tap: Malaber/homebrew-tap
-          base-branch: main
-          download-url: https://github.com/Malaber/hattrix/releases/download/${{ github.ref_name }}/Hattrix.zip
-          commit-message: "Update hattrix to ${{ github.ref_name }}"
+          # 2. IMPORTANT: Casks must download the App Zip, not the source code.
+          # Ensure you are attaching 'Hattrix.zip' to your release!
+          download-url: https://github.com/Malaber/hattrix/releases/download/${{ steps.tag.outputs.name }}/Hattrix.zip
+          commit-message: |
+            {{formulaName}} {{version}}
         env:
           COMMITTER_TOKEN: ${{ secrets.GH_TOKEN_FOR_TAP }}
