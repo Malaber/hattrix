@@ -52,23 +52,10 @@ jobs:
       - name: Update Homebrew Tap
         uses: mislav/bump-homebrew-formula-action@v3
         with:
-          # Name of the formula file (hattrix.rb)
-          formula_name: hattrix
-
-          # Your Tap Repository
-          homebrew_tap: Malaber/homebrew-tap
-
-          # IMPORTANT: Tell it where the file lives in the tap repo.
-          # Since you followed standard structure, it's likely inside "Casks"
-          cask_directory: Casks
-
-          # The base branch of your tap repo
-          base_branch: main
-
-          # The URL to the new zip we just created in step 6
-          download_url: https://github.com/Malaber/hattrix/releases/download/${{ github.ref_name }}/Hattrix.zip
-
-          # Commit message for the tap repo
-          commit_message: "Update hattrix to ${{ github.ref_name }}"
+          formula-name: hattrix
+          homebrew-tap: Malaber/homebrew-tap
+          base-branch: main
+          download-url: https://github.com/Malaber/hattrix/releases/download/${{ github.ref_name }}/Hattrix.zip
+          commit-message: "Update hattrix to ${{ github.ref_name }}"
         env:
           COMMITTER_TOKEN: ${{ secrets.GH_TOKEN_FOR_TAP }}
