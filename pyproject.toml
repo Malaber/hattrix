@@ -1,0 +1,3 @@
+[build-system]
+requires = ["setuptools", "wheel", "py2app"]
+build-backend = "setuptools.build_meta"

@@ -1,18 +1,32 @@
 from setuptools import setup
 
-APP = ['your_main_script.py'] # Replace with your actual .py filename
-DATA_FILES = ['media']
+APP = ['main.py']
+
+DATA_FILES = [
+    ('media', [
+        'media/hattrix.png',
+        'media/muted.png',
+        'media/mic_open.png',
+        'media/mute.mp3',
+        'media/unmute.mp3'
+    ])
+]
+
 OPTIONS = {
-    'argv_emulation': True,
+    'argv_emulation': False,
+    'includes': ['PyObjCTools'],
+    'packages': ['rumps'],
+    # ADD THIS LINE: Exclude build tools that confuse py2app
+    'excludes': ['packaging', 'setuptools', 'pip', 'wheel', 'installer'],
+
     'plist': {
         'CFBundleName': 'Hattrix',
         'CFBundleDisplayName': 'Hattrix',
-        'CFBundleIdentifier': 'com.yourname.hattrix',
-        'CFBundleVersion': '1.0.0',
+        'CFBundleIdentifier': 'com.malaber.hattrix',
         'LSUIElement': True,
-        'NSMicrophoneUsageDescription': 'Hattrix needs microphone access to sync your Teams mute status.',
+        'NSMicrophoneUsageDescription': 'Hattrix needs microphone access to toggle mute.',
+        'NSAppleEventsUsageDescription': 'Hattrix needs to control Teams.',
     },
-    'packages': ['rumps', 'AppKit', 'Foundation', 'ctypes'],
     'iconfile': 'media/hattrix.icns',
 }
 
@@ -21,5 +35,4 @@ setup(
     name='Hattrix',
     data_files=DATA_FILES,
     options={'py2app': OPTIONS},
-    setup_requires=['py2app'],
 )
